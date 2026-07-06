@@ -17,7 +17,7 @@ class VanilaRNN(nn.Module):
         self.W_hh = nn.Parameter(torch.randn(hidden_size, hidden_size))
         self.b = nn.Parameter(torch.zeros(hidden_size))
 
-    def forward(self, x_seq: torch.tensor, h0: Optional[torch.tensor] = None):
+    def forward(self, x_seq: torch.tensor, h_0: Optional[torch.tensor] = None):
         """
         Args:
             x_seq: (B, seq_len, emb_size)
@@ -25,8 +25,8 @@ class VanilaRNN(nn.Module):
         Return:
         """
         B, seq_len, emb_size = x_seq.shape
-        if h0:
-            h_t_prev = h0
+        if h_0:
+            h_t_prev = h_0
         else:
             h_t_prev = torch.zeros_like(self.b)
 
