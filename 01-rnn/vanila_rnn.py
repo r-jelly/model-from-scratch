@@ -27,7 +27,7 @@ class VanilaRNN(nn.Module):
             (B, hidden_size): 입력 시퀀스 마지막 위치에서의 hidden state
         """
         B, seq_len, emb_size = x_seq.shape
-        if h_0:
+        if h_0 is not None:
             h_t_prev = h_0
         else:
             h_t_prev = torch.zeros_like(self.b)
@@ -35,7 +35,7 @@ class VanilaRNN(nn.Module):
         h_stack = []
         for t in range(seq_len):
             x_t = x_seq[:, t, :] 
-            h_t = F.tanh(x_t@self.W_xh.T + h_t_prev@self.W_hh.T + self.b)
+            h_t = torch.tanh(x_t@self.W_xh.T + h_t_prev@self.W_hh.T + self.b)
             h_stack.append(h_t)
             h_t_prev = h_t
 
