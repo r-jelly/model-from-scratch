@@ -23,6 +23,8 @@ class VanilaRNN(nn.Module):
             x_seq: (B, seq_len, emb_size)
             h0: (hidden_size,)
         Return:
+            (B, seq_len, hidden_size): 입력 시퀀스 내 모든 위치에서의 hidden state 
+            (B, hidden_size): 입력 시퀀스 마지막 위치에서의 hidden state
         """
         B, seq_len, emb_size = x_seq.shape
         if h_0:
