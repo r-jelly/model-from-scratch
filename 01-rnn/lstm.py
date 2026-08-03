@@ -12,11 +12,12 @@ class LSTMCell(nn.Module):
         # (i, f, g, o)의 4가지 gate의 parameter를 한 번에 계산하기 위함
         self.W_xh = nn.Parameter(torch.randn(hidden_size*4, input_size))
         self.W_hh = nn.Parameter(torch.randn(hidden_size*4, hidden_size))
-        nn.init.kaiming_uniform_(self.W_xh)
-        nn.init.kaiming_uniform_(self.W_hh)
-
         self.b_xh = nn.Parameter(torch.randn(4*hidden_size))
         self.b_hh = nn.Parameter(torch.randn(4*hidden_size))
+
+        # Sigmoid/Tanh와 같이 대칭성을 갖는 activation 사용시 Xavier uniform 사용
+        nn.init.xavier_uniform_(self.W_xh)
+        nn.init.xavier_uniform_(self.W_hh)
 
     def forward(self, 
                 x_t: torch.Tensor, 
@@ -65,6 +66,53 @@ class LSTMCell(nn.Module):
         return (h_next, c_next)
 
 
+class LSTM(nn.Module):
+    def __init__(self, input_size: int, hidden_size: int, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.hidden_size = hidden_size
+        self.lstm_cell = LSTMCell(input_size, hidden_size)
+
+    def forward(self,
+                x_seq: torch.Tensor,
+                h_prev: Optional[Tuple[torch.Tensor, torch.Tensor]] = None
+        ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        """
+        전체 입력 Sequence에 대해서 RNNCell 연산을 수행
+
+        Args:
+            x_seq (torch.Tensor): 전체 input sequence (batch_size, seq_len, input_size)
+            h_prev (Tuple[torch.Tensor, torch.Tensor]): 이전 시점의 (hidden, cell)값 (batch_size, hidden_size)
+        Returns:
+            output (torch.Tensor): 모든 timestep에서의 output 계산 결과 (batch_size, seq_len, hidden_size)
+            h_next (Tuple[torch.Tensor, torch.Tensor]): 마지막 timestep의 (hidden, cell)값 (batch_size, hidden_size)
+        """
+        is_batched = True
+        if x_seq.dim() > 3 or x_seq.dim() < 2:
+            raise ValueError()
+        elif x_seq.dim() == 1:
+            is_batched = False
+            x_seq = x_seq.unsqueeze(0)
+
+        batch_size, seq_len, _ = x_seq.shape
+        if h_prev is None:
+            h_prev = (
+                torch.zeros((batch_size, self.hidden_size), dtype=x_seq.dtype, device=x_seq.device),
+                torch.zeros((batch_size, self.hidden_size), dtype=x_seq.dtype, device=x_seq.device),
+            )
+
+        output = []
+        for i in range(seq_len):
+            h_next, c_next = self.lstm_cell(x_seq[:, i, :], h_prev)
+            output.append(h_next)
+            h_prev = (h_next, c_next)
+
+        output = torch.stack(output, dim=1)
+        if not is_batched:
+            h_next = h_next.squeeze(0)
+            c_next = c_next.squeeze(0)
+        return output, (h_next, c_next)
+
+
 if __name__ == "__main__":
     batch_size, input_size, hidden_size = 2, 4, 8
 
@@ -103,4 +151,40 @@ if __name__ == "__main__":
         torch.testing.assert_close(my_c_next, torch_c_next)
 
     print("LSTMCell implementation complete!!!")
+    print("=" * 30)
+
+    print("2. LSTM Implementation")
+
+    seq_len = 5
+    my_lstm = LSTM(input_size, hidden_size)
+    torch_lstm = nn.LSTM(input_size, hidden_size, batch_first=True)
+
+    my_parameters = list(my_lstm.parameters())
+    torch_parameters = list(torch_lstm.parameters())
+    assert len(my_parameters) == len(torch_parameters)
+
+    x_seq = torch.randn(batch_size, seq_len, input_size)
+    h_prev = torch.randn(batch_size, hidden_size)
+    c_prev = torch.randn(batch_size, hidden_size)
+
+    with torch.no_grad():
+        for my_parameter, torch_parameter in zip(my_parameters, torch_parameters):
+            my_parameter.copy_(torch_parameter)
+
+        my_output, (my_hidden, my_cell) = my_lstm(x_seq, (h_prev, c_prev))
+        torch_output, (torch_hidden, torch_cell) = torch_lstm(
+            x_seq,
+            (h_prev.unsqueeze(0), c_prev.unsqueeze(0)),
+        )
+        torch.testing.assert_close(my_output, torch_output)
+        torch.testing.assert_close(my_hidden, torch_hidden.squeeze(0))
+        torch.testing.assert_close(my_cell, torch_cell.squeeze(0))
+
+        my_output, (my_hidden, my_cell) = my_lstm(x_seq)
+        torch_output, (torch_hidden, torch_cell) = torch_lstm(x_seq)
+        torch.testing.assert_close(my_output, torch_output)
+        torch.testing.assert_close(my_hidden, torch_hidden.squeeze(0))
+        torch.testing.assert_close(my_cell, torch_cell.squeeze(0))
+
+    print("LSTM implementation complete!!!")
     print("=" * 30)
