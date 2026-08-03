@@ -2,6 +2,7 @@ from typing import Optional, Tuple
 import torch
 import torch.nn as nn
 
+__all__ = ['RNN', 'RNNCell']
 
 class RNNCell(nn.Module):
     def __init__(self, input_size: int, hidden_size: int, *args, **kwargs):
