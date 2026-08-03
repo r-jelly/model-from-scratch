@@ -70,7 +70,7 @@ class RNN(nn.Module):
         is_batched = True
         if x_seq.dim() > 3 or x_seq.dim() < 2:
             raise ValueError()
-        elif x_seq.dim() == 1:
+        elif x_seq.dim() == 2:
             is_batched = False
             x_seq = x_seq.unsqueeze(0)
 
@@ -86,6 +86,7 @@ class RNN(nn.Module):
 
         output = torch.stack(output, dim=1)
         if not is_batched:
+            output = output.squeeze(0)
             h_next = h_next.squeeze(0)
         return output, h_next
 
@@ -146,6 +147,17 @@ if __name__ == "__main__":
 
         my_output, my_hidden = my_rnn(x_seq)
         torch_output, torch_hidden = torch_rnn(x_seq)
+        torch.testing.assert_close(my_output, torch_output)
+        torch.testing.assert_close(my_hidden, torch_hidden.squeeze(0))
+
+        # Unbatched sequences and hidden states are also supported
+        my_output, my_hidden = my_rnn(x_seq[0], h_prev[0])
+        torch_output, torch_hidden = torch_rnn(x_seq[0], h_prev[0].unsqueeze(0))
+        torch.testing.assert_close(my_output, torch_output)
+        torch.testing.assert_close(my_hidden, torch_hidden.squeeze(0))
+
+        my_output, my_hidden = my_rnn(x_seq[0])
+        torch_output, torch_hidden = torch_rnn(x_seq[0])
         torch.testing.assert_close(my_output, torch_output)
         torch.testing.assert_close(my_hidden, torch_hidden.squeeze(0))
 
