@@ -1,4 +1,5 @@
 from typing import Optional, Tuple
+import math
 import torch
 import torch.nn as nn
 
@@ -15,9 +16,10 @@ class RNNCell(nn.Module):
         self.b_xh = nn.Parameter(torch.zeros(hidden_size))
         self.b_hh = nn.Parameter(torch.zeros(hidden_size))
 
-        # Sigmoid/Tanh와 같이 대칭성을 갖는 activation 사용시 Xavier uniform 사용
-        nn.init.xavier_uniform_(self.W_xh)
-        nn.init.xavier_uniform_(self.W_hh)
+    def reset_parameters(self) -> None:
+        stdv = 1.0 / math.sqrt(self.hidden_size) if self.hidden_size > 0 else 0
+        for weight in self.parameters():
+            nn.init.uniform_(weight, -stdv, stdv)
 
     def forward(self, x_t: torch.Tensor, h_prev: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
