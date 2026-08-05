@@ -6,6 +6,7 @@ import torch.nn as nn
 from rnn import RNN
 from lstm import LSTM
 
+__all__ = ["ManyToOneClassifier", "CharacterLM"]
 
 class ManyToOneClassifier(nn.Module):
     """

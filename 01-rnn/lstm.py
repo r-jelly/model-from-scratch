@@ -13,8 +13,8 @@ class LSTMCell(nn.Module):
         # (i, f, g, o)의 4가지 gate의 parameter를 한 번에 계산하기 위함
         self.W_xh = nn.Parameter(torch.randn(hidden_size*4, input_size))
         self.W_hh = nn.Parameter(torch.randn(hidden_size*4, hidden_size))
-        self.b_xh = nn.Parameter(torch.randn(4*hidden_size))
-        self.b_hh = nn.Parameter(torch.randn(4*hidden_size))
+        self.b_xh = nn.Parameter(torch.zeros(4*hidden_size))
+        self.b_hh = nn.Parameter(torch.zeros(4*hidden_size))
 
         # Sigmoid/Tanh와 같이 대칭성을 갖는 activation 사용시 Xavier uniform 사용
         nn.init.xavier_uniform_(self.W_xh)
@@ -78,7 +78,7 @@ class LSTM(nn.Module):
                 h_prev: Optional[Tuple[torch.Tensor, torch.Tensor]] = None
         ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """
-        전체 입력 Sequence에 대해서 RNNCell 연산을 수행
+        전체 입력 Sequence에 대해서 LSTMCell 연산을 수행
 
         Args:
             x_seq (torch.Tensor): 전체 input sequence (batch_size, seq_len, input_size)
