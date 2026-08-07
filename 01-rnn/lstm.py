@@ -12,10 +12,11 @@ class LSTMCell(nn.Module):
         self.hidden_size = hidden_size
 
         # (i, f, g, o)의 4가지 gate의 parameter를 한 번에 계산하기 위함
-        self.W_xh = nn.Parameter(torch.randn(hidden_size*4, input_size))
-        self.W_hh = nn.Parameter(torch.randn(hidden_size*4, hidden_size))
-        self.b_xh = nn.Parameter(torch.zeros(4*hidden_size))
-        self.b_hh = nn.Parameter(torch.zeros(4*hidden_size))
+        self.W_xh = nn.Parameter(torch.empty(hidden_size*4, input_size))
+        self.W_hh = nn.Parameter(torch.empty(hidden_size*4, hidden_size))
+        self.b_xh = nn.Parameter(torch.empty(4*hidden_size))
+        self.b_hh = nn.Parameter(torch.empty(4*hidden_size))
+        self.reset_parameters()
 
     def reset_parameters(self) -> None:
         stdv = 1.0 / math.sqrt(self.hidden_size) if self.hidden_size > 0 else 0

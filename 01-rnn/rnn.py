@@ -11,10 +11,11 @@ class RNNCell(nn.Module):
         self.input_size = input_size
         self.hidden_size = hidden_size
 
-        self.W_xh = nn.Parameter(torch.randn(hidden_size, input_size))
-        self.W_hh = nn.Parameter(torch.randn(hidden_size, hidden_size))
-        self.b_xh = nn.Parameter(torch.zeros(hidden_size))
-        self.b_hh = nn.Parameter(torch.zeros(hidden_size))
+        self.W_xh = nn.Parameter(torch.empty(hidden_size, input_size))
+        self.W_hh = nn.Parameter(torch.empty(hidden_size, hidden_size))
+        self.b_xh = nn.Parameter(torch.empty(hidden_size))
+        self.b_hh = nn.Parameter(torch.empty(hidden_size))
+        self.reset_parameters()
 
     def reset_parameters(self) -> None:
         stdv = 1.0 / math.sqrt(self.hidden_size) if self.hidden_size > 0 else 0
