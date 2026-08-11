@@ -80,12 +80,13 @@ class Seq2Seq(nn.Module):
             hidden_size=hidden_size
         )
 
-    def forward(self, source: Tensor, target_input: Tensor, valid_mask: Tensor):
+    def forward(self, source: Tensor, target_input: Tensor, valid_mask: Tensor, teacher_force_ratio: float = 1.0):
         """
         Args:
             source (LongTensor): (batch_size, seq_len) 크기의 원본 시퀀스
             target_input (LongTensor): (batch_size, seq_len+1) 크기의 [BOS 토큰 + 정답 시퀀스]
             valid_mask (BoolTensor): (batch_size, seq_len), 실제 source가 위치한 인덱스를 표시
+            teacher_force_ratio (float): 전체 시퀀스에서 teacher forcing을 사용할 비율 (0.0-1.0 범위)
         Returns:
             logits (FloatTensor): (batch_size, seq_len+1, vocab_size) 크기의 전체 logit
         """
@@ -93,8 +94,12 @@ class Seq2Seq(nn.Module):
         _, (h_x, c_x) = self.encoder(source=source, valid_mask=valid_mask)
 
         logits = []
+        cur_token = target_input[:, 0]
         for t in range(T):
-            logit, (h_x, c_x) = self.decoder(token=target_input[:,t], hidden=h_x, cell=c_x)
+            teacher_force_mask = random.random()
+            logit, (h_x, c_x) = self.decoder(token=cur_token, hidden=h_x, cell=c_x)
+            if t+1 < T:
+                cur_token = target_input[:, t+1] if teacher_force_mask < teacher_force_ratio else logit.argmax(dim=-1)
             logits.append(logit)
         logits = torch.stack(logits, dim=1)
 
@@ -155,4 +160,21 @@ if __name__ == "__main__":
     for name, parameter in seq_to_seq.named_parameters():
         assert parameter.grad is not None
         assert torch.isfinite(parameter.grad).all()
-    
+
+    print("=" * 50)
+    print("3. Seq2Seq Model Teacher Force Ratio Test")
+    seq_to_seq = Seq2Seq(vocab_size=vocab_size, embedding_size=emb_size, hidden_size=hidden_size)
+    logits = seq_to_seq.forward(source=source, target_input=target_input, valid_mask=valid_mask, teacher_force_ratio=0.0)
+
+    assert torch.isfinite(logits).all()
+    assert logits.shape == (batch_size, target_input.shape[1], vocab_size)
+
+    logits = logits.reshape(-1, vocab_size)
+    target_output_flatten = target_output.reshape(-1)
+    loss = loss_fn(logits, target_output_flatten)
+    assert torch.isfinite(loss).all()
+
+    loss.backward()
+    for name, parameter in seq_to_seq.named_parameters():
+        assert parameter.grad is not None
+        assert torch.isfinite(parameter.grad).all()
