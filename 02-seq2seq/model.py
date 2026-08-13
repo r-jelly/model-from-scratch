@@ -4,6 +4,7 @@ import torch.nn as nn
 from torch import Tensor
 
 from lstm import LSTM, LSTMCell
+from attention import BahdanauAttention
 from data import synthetic_reverse_dataset, PAD_TOKEN, BOS_TOKEN
 
 
@@ -64,6 +65,61 @@ class Seq2SeqDecoder(nn.Module):
         logit = self.linear(h_next) # (B, H) -> (B, V)
 
         return logit, (h_next, c_next)
+
+
+class AttentionSeq2SeqDecoder(nn.Module):
+    def __init__(
+        self,  
+        vocab_size: int,
+        embedding_size: int,
+        enc_hidden_size: int,
+        dec_hidden_size: int,
+        attention_size: int,
+        *args, 
+        **kwargs
+    ):
+        super().__init__(*args, **kwargs)
+        self.embedding = nn.Embedding(num_embeddings=vocab_size, embedding_dim=embedding_size, padding_idx=PAD_TOKEN)
+        self.attention = BahdanauAttention(
+            enc_hidden_size=enc_hidden_size,
+            dec_hidden_size=dec_hidden_size,
+            attention_size=attention_size
+        )
+        self.lstm_cell = LSTMCell(embedding_size+enc_hidden_size, dec_hidden_size) 
+        self.linear = nn.Linear(dec_hidden_size, vocab_size)
+
+    def forward(self, token: Tensor, hidden: Tensor, cell: Tensor, enc_outputs: Tensor, valid_mask: Tensor):
+        """
+        Args:
+            token (Tensor): 현재 시점의 token id, (batch_size,)
+            hidden (Tensor): 이전 시점의 hidden state, (batch_size, dec_hidden_size)
+            cell (Tensor): 이전 시점의 cell state, (batch_size, dec_hidden_size)
+            enc_outputs (Tensor): Encoder의 모든 timestep에 대한 output, (batch_size, seq_len, enc_hidden_size)
+            valid_mask (Tensor): batch 내 실제 토큰이 위치한 지점에 대한 masking (batch_size, seq_len)
+
+        Returns:
+            logit (Tensor): 다음 token의 raw logits, (batch_size, vocab_size)
+            h_next (Tensor): 갱신된 hidden state, (batch_size, dec_hidden_size)
+            c_next (Tensor): 갱신된 cell state, (batch_size, dec_hidden_size)
+            attention_weights (Tensor): Encoder의 모든 timestep에서의 attention weight, (batch_size, seq_len)
+        """
+        # Attention 구하기
+        attention_value, attention_weight = self.attention(
+            enc_outputs=enc_outputs,
+            dec_hidden=hidden,
+            valid_mask=valid_mask
+        )
+
+        # Token을 Embedding으로 변환
+        embedded = self.embedding(token) # (B, ) -> (B, E)
+        # Embedding과 attention value(context)를 concat
+        lstm_input = torch.concat((embedded, attention_value), dim=-1) # (B, E+H_enc)
+        # LSTMCell 연산 (enc_hidden_size == dec_hidden_size라고 가정)
+        h_next, c_next = self.lstm_cell(lstm_input, h_prev=(hidden, cell)) # (B, H_dec)
+        # logit 계산
+        logit = self.linear(h_next) # (B, H_dec) -> (B, V)
+
+        return logit, (h_next, c_next), attention_weight
 
 
 class Seq2Seq(nn.Module):
