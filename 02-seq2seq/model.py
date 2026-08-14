@@ -5,7 +5,7 @@ from torch import Tensor
 
 from lstm import LSTM, LSTMCell
 from attention import BahdanauAttention
-from data import synthetic_reverse_dataset, PAD_TOKEN, BOS_TOKEN
+from data import synthetic_reverse_dataset, PAD_TOKEN, BOS_TOKEN, EOS_TOKEN
 
 
 class Seq2SeqEncoder(nn.Module):
@@ -161,6 +161,36 @@ class Seq2Seq(nn.Module):
 
         return logits
 
+    def greedy_decode(self, source: Tensor, valid_mask: Tensor, max_new_tokens: int):
+        """
+        Args:
+            source (LongTensor): (batch_size, seq_len) 크기의 원본 시퀀스
+            valid_mask (BoolTensor): (batch_size, seq_len), 실제 source가 위치한 인덱스를 표시
+            max_new_tokens (int): 새로 생성될 수 있는 토큰 수의 최대값
+        Returns:
+            token_ids (Tensor): (batch_size, generated_length) 크기의 생성된 토큰 ID들
+        """
+        assert max_new_tokens > 0
+
+        batch_size = source.size(0)
+        _, (h_x, c_x) = self.encoder(source=source, valid_mask=valid_mask)
+
+        cur_token = torch.LongTensor([BOS_TOKEN] * batch_size, device=source.device)
+        finished = torch.BoolTensor([False] * batch_size, device=source.device)
+
+        token_ids = []
+        for _ in range(max_new_tokens):
+            logit, (h_x, c_x) = self.decoder(token=cur_token, hidden=h_x, cell=c_x)
+            cur_token = logit.argmax(dim=-1)
+            cur_token = cur_token.where(~finished, other=PAD_TOKEN)
+            finished = finished | (cur_token == EOS_TOKEN)
+            token_ids.append(cur_token)
+
+            if torch.all(finished):
+                break
+        token_ids = torch.stack(token_ids, dim=1)
+        return token_ids
+
 
 class AttentionSeq2Seq(nn.Module):
     def __init__(
@@ -217,6 +247,42 @@ class AttentionSeq2Seq(nn.Module):
         attention_weights = torch.stack(attention_weights, dim=1)
 
         return logits, attention_weights
+
+    def greedy_decode(self, source: Tensor, valid_mask: Tensor, max_new_tokens: int):
+        """
+        Args:
+            source (LongTensor): (batch_size, seq_len) 크기의 원본 시퀀스
+            valid_mask (BoolTensor): (batch_size, seq_len), 실제 source가 위치한 인덱스를 표시
+            max_new_tokens (int): 새로 생성될 수 있는 토큰 수의 최대값
+        Returns:
+            token_ids (Tensor): (batch_size, generated_length) 크기의 생성된 토큰 ID들
+            attention_weights (Tensor): (batch_size, generated_length, seq_len) 크기의 attention weight
+        """
+        assert max_new_tokens > 0
+
+        batch_size = source.size(0)
+        enc_outputs, (h_x, c_x) = self.encoder(source=source, valid_mask=valid_mask)
+
+        cur_token = torch.LongTensor([BOS_TOKEN] * batch_size, device=source.device)
+        finished = torch.BoolTensor([False] * batch_size, device=source.device)
+
+        token_ids = []
+        attention_weights = []
+        for _ in range(max_new_tokens):
+            logit, (h_x, c_x), attention_weight = \
+                self.decoder(token=cur_token, hidden=h_x, cell=c_x, enc_outputs=enc_outputs, valid_mask=valid_mask)
+            cur_token = logit.argmax(dim=-1)
+            cur_token = cur_token.where(~finished, other=PAD_TOKEN)
+            finished = finished | (cur_token == EOS_TOKEN)
+
+            token_ids.append(cur_token)
+            attention_weights.append(attention_weight)
+
+            if torch.all(finished):
+                break
+        token_ids = torch.stack(token_ids, dim=1)
+        attention_weights = torch.stack(attention_weights, dim=1)
+        return token_ids, attention_weights
 
 
 if __name__ == "__main__":
@@ -352,3 +418,25 @@ if __name__ == "__main__":
     for name, parameter in attention_seq_to_seq.named_parameters():
         assert parameter.grad is not None
         assert torch.isfinite(parameter.grad).all()
+
+    print("=" * 50)
+    print("6. Greedy Decoding Test")
+    with torch.no_grad():
+        seq_to_seq.decoder.linear.weight.zero_()
+        seq_to_seq.decoder.linear.bias.zero_()
+        seq_to_seq.decoder.linear.bias[EOS_TOKEN] = 1
+        attention_seq_to_seq.decoder.linear.weight.zero_()
+        attention_seq_to_seq.decoder.linear.bias.zero_()
+        attention_seq_to_seq.decoder.linear.bias[EOS_TOKEN] = 1
+
+        token_ids = seq_to_seq.greedy_decode(source, valid_mask, max_new_tokens=target_input.shape[1])
+        attention_token_ids, attention_weights = attention_seq_to_seq.greedy_decode(
+            source,
+            valid_mask,
+            max_new_tokens=target_input.shape[1]
+        )
+
+    assert token_ids.shape == attention_token_ids.shape == (batch_size, 1)
+    assert torch.all(token_ids == EOS_TOKEN)
+    assert torch.all(attention_token_ids == EOS_TOKEN)
+    assert attention_weights.shape == (batch_size, 1, source.shape[1])
