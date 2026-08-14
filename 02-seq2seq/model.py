@@ -161,6 +161,64 @@ class Seq2Seq(nn.Module):
 
         return logits
 
+
+class AttentionSeq2Seq(nn.Module):
+    def __init__(
+        self,
+        vocab_size: int,
+        embedding_size: int,
+        hidden_size: int,
+        attention_size: int,
+        *args,
+        **kwargs
+    ):
+        super().__init__(*args, **kwargs)
+        self.encoder = Seq2SeqEncoder(
+            vocab_size=vocab_size,
+            embedding_size=embedding_size,
+            hidden_size=hidden_size
+        )
+        self.decoder = AttentionSeq2SeqDecoder(
+            vocab_size=vocab_size,
+            embedding_size=embedding_size,
+            enc_hidden_size=hidden_size,
+            dec_hidden_size=hidden_size,
+            attention_size=attention_size
+        )
+
+    def forward(self, source: Tensor, target_input: Tensor, valid_mask: Tensor, teacher_force_ratio: float = 1.0):
+        """
+        Args:
+            source (LongTensor): (batch_size, seq_len) 크기의 원본 시퀀스
+            target_input (LongTensor): (batch_size, seq_len+1) 크기의 [BOS 토큰 + 정답 시퀀스]
+            valid_mask (BoolTensor): (batch_size, seq_len), 실제 source가 위치한 인덱스를 표시
+            teacher_force_ratio (float): 전체 시퀀스에서 teacher forcing을 사용할 비율 (0.0-1.0 범위)
+        Returns:
+            logits (FloatTensor): (batch_size, seq_len+1, vocab_size) 크기의 전체 logit
+            attention_weights (FloatTensor): (batch_size, seq_len+1, seq_len) 크기의 전체 attention weight
+        """
+        _, T = target_input.shape
+        enc_outputs, (h_x, c_x) = self.encoder(source=source, valid_mask=valid_mask)
+
+        logits = []
+        attention_weights = []
+        cur_token = target_input[:, 0]
+        for t in range(T):
+            teacher_force_mask = random.random()
+            logit, (h_x, c_x), attention_weight = \
+                self.decoder(token=cur_token, hidden=h_x, cell=c_x, enc_outputs=enc_outputs, valid_mask=valid_mask)
+            if t+1 < T:
+                cur_token = target_input[:, t+1] if teacher_force_mask < teacher_force_ratio else logit.argmax(dim=-1)
+
+            logits.append(logit)
+            attention_weights.append(attention_weight)
+
+        logits = torch.stack(logits, dim=1)
+        attention_weights = torch.stack(attention_weights, dim=1)
+
+        return logits, attention_weights
+
+
 if __name__ == "__main__":
     random.seed(42)
     torch.manual_seed(42)
@@ -232,5 +290,65 @@ if __name__ == "__main__":
 
     loss.backward()
     for name, parameter in seq_to_seq.named_parameters():
+        assert parameter.grad is not None
+        assert torch.isfinite(parameter.grad).all()
+
+    print("=" * 50)
+    print("4. Attention Seq2Seq Decoder Test")
+    attention_size = 12
+    attention_decoder = AttentionSeq2SeqDecoder(
+        vocab_size=vocab_size,
+        embedding_size=emb_size,
+        enc_hidden_size=hidden_size,
+        dec_hidden_size=hidden_size,
+        attention_size=attention_size
+    )
+    logits, (h_next, c_next), attention_weights = attention_decoder(
+        token=bos_tokens,
+        hidden=hidden.detach(),
+        cell=cell.detach(),
+        enc_outputs=encoder_output.detach(),
+        valid_mask=valid_mask
+    )
+
+    assert logits.shape == (batch_size, vocab_size)
+    assert h_next.shape == c_next.shape == (batch_size, hidden_size)
+    assert attention_weights.shape == source.shape
+    assert torch.isfinite(logits).all()
+    assert torch.isfinite(h_next).all()
+    assert torch.isfinite(c_next).all()
+    assert torch.allclose(attention_weights.sum(dim=-1), torch.ones(batch_size))
+    assert torch.all(attention_weights[~valid_mask] == 0)
+
+    print("=" * 50)
+    print("5. Attention Seq2Seq Model Test")
+    attention_seq_to_seq = AttentionSeq2Seq(
+        vocab_size=vocab_size,
+        embedding_size=emb_size,
+        hidden_size=hidden_size,
+        attention_size=attention_size
+    )
+    logits, attention_weights = attention_seq_to_seq(
+        source=source,
+        target_input=target_input,
+        valid_mask=valid_mask,
+        teacher_force_ratio=0.0
+    )
+
+    assert logits.shape == (batch_size, target_input.shape[1], vocab_size)
+    assert attention_weights.shape == (batch_size, target_input.shape[1], source.shape[1])
+    assert torch.isfinite(logits).all()
+    assert torch.isfinite(attention_weights).all()
+    assert torch.allclose(
+        attention_weights.sum(dim=-1),
+        torch.ones(batch_size, target_input.shape[1])
+    )
+    expanded_valid_mask = valid_mask.unsqueeze(1).expand_as(attention_weights)
+    assert torch.all(attention_weights[~expanded_valid_mask] == 0)
+
+    loss = loss_fn(logits.reshape(-1, vocab_size), target_output.reshape(-1))
+    assert torch.isfinite(loss)
+    loss.backward()
+    for name, parameter in attention_seq_to_seq.named_parameters():
         assert parameter.grad is not None
         assert torch.isfinite(parameter.grad).all()
