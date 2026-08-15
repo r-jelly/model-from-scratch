@@ -108,7 +108,7 @@ class LSTM(nn.Module):
 
         # 만약 각 시퀀스의 길이가 없을때는, 모든 시퀀스의 길이가 같다고 가정
         if lengths is None:
-            lengths = torch.LongTensor([x_seq.size(1)] * x_seq.size(0), device=x_seq.device)
+            lengths = torch.LongTensor([x_seq.size(1)] * x_seq.size(0)).to(x_seq.device)
 
         output = []
         for t in range(seq_len):

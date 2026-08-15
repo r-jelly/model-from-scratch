@@ -175,8 +175,8 @@ class Seq2Seq(nn.Module):
         batch_size = source.size(0)
         _, (h_x, c_x) = self.encoder(source=source, valid_mask=valid_mask)
 
-        cur_token = torch.LongTensor([BOS_TOKEN] * batch_size, device=source.device)
-        finished = torch.BoolTensor([False] * batch_size, device=source.device)
+        cur_token = torch.LongTensor([BOS_TOKEN] * batch_size).to(source.device)
+        finished = torch.BoolTensor([False] * batch_size).to(source.device)
 
         token_ids = []
         for _ in range(max_new_tokens):
@@ -263,8 +263,8 @@ class AttentionSeq2Seq(nn.Module):
         batch_size = source.size(0)
         enc_outputs, (h_x, c_x) = self.encoder(source=source, valid_mask=valid_mask)
 
-        cur_token = torch.LongTensor([BOS_TOKEN] * batch_size, device=source.device)
-        finished = torch.BoolTensor([False] * batch_size, device=source.device)
+        cur_token = torch.LongTensor([BOS_TOKEN] * batch_size).to(source.device)
+        finished = torch.BoolTensor([False] * batch_size).to(source.device)
 
         token_ids = []
         attention_weights = []
