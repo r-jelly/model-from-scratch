@@ -1,5 +1,7 @@
+import re
 import random
-from typing import Tuple
+from typing import Tuple, List, Dict, Iterable
+from collections import Counter
 
 import torch
 from torch import Tensor
@@ -56,6 +58,78 @@ def synthetic_reverse_dataset(
     return source, target_input, target_output, valid_mask
 
 
+def word_tokenizer(text: str) -> List[str]:
+    """
+    문자열 하나를 입력받아, 단어 토큰 단위로 분해하는 함수
+    다음과 같은 규칙으로 Tokenize를 진행한다:
+        1) 전원 소문자화
+        2) 공백 제거
+        3) 문장부호는 별도의 토큰
+        4) 단어 내부의 아포스트로피 및 다른 언어 Unicode 보존
+
+    Args:
+        text (str): 토크나이징을 진행할 전체 문자열
+    Returns:
+        tokens (List[str]): 토큰들의 리스트
+    """
+    # 대문자를 소문자화
+    text = text.lower()
+
+    # 정규표현식으로 단어, 문장부호 찾기
+    normalized = r"[^\W_]+(?:['’][^\W_]+)*|[.,!?]"
+    tokens = re.findall(normalized, text)
+
+    return tokens
+
+
+def build_vocab(corpus: Iterable[str], min_freq: int) -> List[str]:
+    """
+    문자열들의 Iterable 객체와 최소 빈도수를 입력받아서, 최종 Vocabulary를 생성
+
+    Args:
+        corpus (Iterable[str]): 문장들의 Iterable 객체
+        min_freq (int): 토큰으로 인정하는 최소 빈도수
+    Returns:
+        vocab (List[str]): 조건을 만족하는 Vocab
+    """
+    token_freq = Counter()
+
+    # 각 문장을 word_tokenizer로 분리
+    for sentence in corpus:
+        tokens = word_tokenizer(sentence)
+        token_freq.update(tokens)
+
+    # min_freq 이상인 토큰만 수집
+    allow_tokens = [k for k, v in token_freq.items() if v >= min_freq]
+    special_tokens = ['<pad>', '<bos>', '<eos>', '<unk>']
+
+    # 최종 vocab 생성
+    allow_tokens = sorted(
+        allow_tokens,
+        key=lambda token: (-token_freq[token], token)
+    )
+    vocab = special_tokens + allow_tokens
+    return vocab
+
+
+def encode_text(text: str, token_to_id: Dict[str, int]) -> List[int]:
+    """
+    문자열을 tokenizer 규칙에 맞게 token id들의 리스트로 반환하는 함수
+
+    Args:
+        text (str): 변환할 문자열
+        token_to_id (Dict[str, int]): 토큰에 대한 ID 사전
+    Returns:
+        token_ids (List[int]): 변환된 token id 리스트
+    """
+    tokens = word_tokenizer(text)
+    token_ids = [
+        token_to_id.get(token, token_to_id['<unk>'])
+        for token in tokens
+    ]
+    return token_ids
+
+
 if __name__ == "__main__":
     source, target_input, target_output, valid_mask = \
         synthetic_reverse_dataset(5, 8, 16)
@@ -64,3 +138,22 @@ if __name__ == "__main__":
     assert source.shape == valid_mask.shape
     assert target_input.shape == target_output.shape
     assert all(target_input[:, 0] == BOS_TOKEN)
+
+    assert word_tokenizer("A man, runs!") == ["a", "man", ",", "runs", "!"]
+    assert word_tokenizer("Don't stop.") == ["don't", "stop", "."]
+    assert word_tokenizer("Ein Mädchen läuft.") == ["ein", "mädchen", "läuft", "."]
+
+    corpus = (
+        sentence
+        for sentence in [
+            "A man runs.",
+            "A woman runs.",
+            "A dog sleeps.",
+        ]
+    )
+    vocab = build_vocab(corpus, min_freq=2)
+    assert vocab == ["<pad>", "<bos>", "<eos>", "<unk>", ".", "a", "runs"]
+
+    token_to_id = {token: token_id for token_id, token in enumerate(vocab)}
+    assert encode_text("A cat runs.", token_to_id) == [5, 3, 6, 4]
+    assert encode_text("", token_to_id) == []
