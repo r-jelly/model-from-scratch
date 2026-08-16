@@ -130,6 +130,30 @@ def encode_text(text: str, token_to_id: Dict[str, int]) -> List[int]:
     return token_ids
 
 
+def decode_text(token_ids: Iterable[int], vocab: List[str]) -> str:
+    """
+    Token ID들의 iterable 객체를 문자열로 변환하는 함수
+
+    Args:
+        token_ids (Iterable[int]): 토큰들의 ID를 모든 iterable 객체
+        vocab (List[str]): 토큰들의 전체 vocabulary
+    Returns:
+        text (str): 디코딩된 전체 문자열
+    """
+    tokens = []
+
+    for token_id in token_ids:
+        if isinstance(token_id, Tensor):
+            token_id = int(token_id)
+
+        if token_id == EOS_TOKEN:
+            break
+        if token_id == PAD_TOKEN or token_id == BOS_TOKEN:
+            continue
+        tokens.append(vocab[token_id])
+    return ' '.join(tokens)
+
+
 def translate_collate_fn(
     batch: List[Dict[str, str]],
     source_token_to_id: Dict[str, int],
@@ -201,6 +225,8 @@ if __name__ == "__main__":
     token_to_id = {token: token_id for token_id, token in enumerate(vocab)}
     assert encode_text("A cat runs.", token_to_id) == [5, 3, 6, 4]
     assert encode_text("", token_to_id) == []
+    assert decode_text([1, 5, 3, 6, 4, 2, 0], vocab) == "a <unk> runs ."
+    assert decode_text(torch.LongTensor([1, 5, 3, 6, 4, 2, 0]), vocab) == "a <unk> runs ."
 
     source_token_to_id = {
         '<pad>': 0, '<bos>': 1, '<eos>': 2, '<unk>': 3,

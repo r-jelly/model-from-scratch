@@ -123,15 +123,23 @@ class AttentionSeq2SeqDecoder(nn.Module):
 
 
 class Seq2Seq(nn.Module):
-    def __init__(self, vocab_size: int, embedding_size: int, hidden_size: int, *args, **kwargs):
+    def __init__(
+        self,
+        source_vocab_size: int,
+        target_vocab_size: int,
+        embedding_size: int, 
+        hidden_size: int, 
+        *args, 
+        **kwargs
+    ):
         super().__init__(*args, **kwargs)
         self.encoder = Seq2SeqEncoder(
-            vocab_size=vocab_size,
+            vocab_size=source_vocab_size,
             embedding_size=embedding_size,
             hidden_size=hidden_size
         )
         self.decoder = Seq2SeqDecoder(
-            vocab_size=vocab_size,
+            vocab_size=target_vocab_size,
             embedding_size=embedding_size,
             hidden_size=hidden_size
         )
@@ -195,7 +203,8 @@ class Seq2Seq(nn.Module):
 class AttentionSeq2Seq(nn.Module):
     def __init__(
         self,
-        vocab_size: int,
+        source_vocab_size: int,
+        target_vocab_size: int,
         embedding_size: int,
         hidden_size: int,
         attention_size: int,
@@ -204,12 +213,12 @@ class AttentionSeq2Seq(nn.Module):
     ):
         super().__init__(*args, **kwargs)
         self.encoder = Seq2SeqEncoder(
-            vocab_size=vocab_size,
+            vocab_size=source_vocab_size,
             embedding_size=embedding_size,
             hidden_size=hidden_size
         )
         self.decoder = AttentionSeq2SeqDecoder(
-            vocab_size=vocab_size,
+            vocab_size=target_vocab_size,
             embedding_size=embedding_size,
             enc_hidden_size=hidden_size,
             dec_hidden_size=hidden_size,
@@ -325,7 +334,12 @@ if __name__ == "__main__":
 
     print("=" * 50)
     print("2. Seq2Seq Model Test")
-    seq_to_seq = Seq2Seq(vocab_size=vocab_size, embedding_size=emb_size, hidden_size=hidden_size)
+    seq_to_seq = Seq2Seq(
+        source_vocab_size=vocab_size,
+        target_vocab_size=vocab_size,
+        embedding_size=emb_size, 
+        hidden_size=hidden_size
+    )
     logits = seq_to_seq.forward(source=source, target_input=target_input, valid_mask=valid_mask)
 
     assert torch.isfinite(logits).all()
@@ -343,7 +357,12 @@ if __name__ == "__main__":
 
     print("=" * 50)
     print("3. Seq2Seq Model Teacher Force Ratio Test")
-    seq_to_seq = Seq2Seq(vocab_size=vocab_size, embedding_size=emb_size, hidden_size=hidden_size)
+    seq_to_seq = Seq2Seq(
+        source_vocab_size=vocab_size,
+        target_vocab_size=vocab_size,
+        embedding_size=emb_size, 
+        hidden_size=hidden_size
+    )
     logits = seq_to_seq.forward(source=source, target_input=target_input, valid_mask=valid_mask, teacher_force_ratio=0.0)
 
     assert torch.isfinite(logits).all()
@@ -389,7 +408,8 @@ if __name__ == "__main__":
     print("=" * 50)
     print("5. Attention Seq2Seq Model Test")
     attention_seq_to_seq = AttentionSeq2Seq(
-        vocab_size=vocab_size,
+        source_vocab_size=vocab_size,
+        target_vocab_size=vocab_size,
         embedding_size=emb_size,
         hidden_size=hidden_size,
         attention_size=attention_size
