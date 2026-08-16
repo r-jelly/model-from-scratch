@@ -69,7 +69,6 @@ model-from-scratch/
 ├── 10-vit/                    # 10주차: Vision Transformer
 ├── 11-dpo/                    # 11주차: DPO alignment
 ├── 12-integration-lab/        # 12주차: 통합 실험 코드베이스
-├── utils/                     # 공통 모듈 (tokenizer, trainer, dataset, viz)
 └── docs/                      # 로드맵, 블로그 포스팅 초안
 ```
 
@@ -84,6 +83,7 @@ NumPy    1.x
 ```
 
 이전 주차의 핵심 블록을 다음 주차에서 누적 재사용하되, 각 모델의 대표 실험은 독립적으로 실행 가능하도록 작성합니다.
+전처리와 실험 보조 코드는 각 주차 폴더에 두고, 두 주차 이상에서 실제로 재사용할 때만 공통 모듈로 승격합니다.
 별도의 대규모 학습 없이 toy dataset / 소형 데이터셋으로 원리와 행동을 확인하는 것을 목표로 합니다.
 
 ---
