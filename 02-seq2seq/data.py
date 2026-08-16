@@ -130,6 +130,50 @@ def encode_text(text: str, token_to_id: Dict[str, int]) -> List[int]:
     return token_ids
 
 
+def translate_collate_fn(
+    batch: List[Dict[str, str]],
+    source_token_to_id: Dict[str, int],
+    target_token_to_id: Dict[str, int],
+) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
+    """
+    Dataset의 여러 샘플을 1개의 Batch Tensor로 조립하는 함수
+    - 각 문장을 Token ID로 변환 후, <bos>/<eos> 추가
+    - 길이가 다른 문장들을 최장 길이에 맞춰 Padding
+    - source의 실제 토큰 위치를 나타내는 masking Tensor 생성
+
+    Args:
+        batch (List): DE/EN의 문자열 Dictionary를 포함하는 리스트
+        source_token_to_id (Dict): source 언어의 token_to_id 사전
+        target_token_to_id (Dict): target 언어의 token_to_id 사전
+    Returns:
+        source (LongTensor): source 언어의 token id 리스트 + EOS
+        target_input (LongTensor): BOS + target 언어의 token id 리스트
+        target_output (LongTensor): target 언어의 token id 리스트 + EOS
+        valid_mask (BoolTensor): source의 실제 토큰 위치를 나타내는 텐서
+    """
+    # 번역 Task에서는 source 문장 끝에 EOS를 붙이는 것이 관례라고 함
+    # https://docs.pytorch.org/tutorials/intermediate/seq2seq_translation_tutorial.html
+
+    source_seq = []
+    target_input_seq = []
+    target_output_seq = []
+
+    for sample in batch:
+        source_ids = encode_text(sample['de'], source_token_to_id)
+        target_ids = encode_text(sample['en'], target_token_to_id)
+
+        source_seq.append(Tensor(source_ids+[EOS_TOKEN]).type(torch.long))
+        target_input_seq.append(Tensor([BOS_TOKEN]+target_ids).type(torch.long))
+        target_output_seq.append(Tensor(target_ids+[EOS_TOKEN]).type(torch.long))
+
+    source = pad_sequence(source_seq, batch_first=True, padding_value=PAD_TOKEN)
+    target_input = pad_sequence(target_input_seq, batch_first=True, padding_value=PAD_TOKEN)
+    target_output = pad_sequence(target_output_seq, batch_first=True, padding_value=PAD_TOKEN)
+    valid_mask = source != PAD_TOKEN
+
+    return source, target_input, target_output, valid_mask
+
+
 if __name__ == "__main__":
     source, target_input, target_output, valid_mask = \
         synthetic_reverse_dataset(5, 8, 16)
@@ -157,3 +201,28 @@ if __name__ == "__main__":
     token_to_id = {token: token_id for token_id, token in enumerate(vocab)}
     assert encode_text("A cat runs.", token_to_id) == [5, 3, 6, 4]
     assert encode_text("", token_to_id) == []
+
+    source_token_to_id = {
+        '<pad>': 0, '<bos>': 1, '<eos>': 2, '<unk>': 3,
+        'ein': 4, 'mann': 5, 'läuft': 6, '.': 7,
+    }
+    target_token_to_id = {
+        '<pad>': 0, '<bos>': 1, '<eos>': 2, '<unk>': 3,
+        'a': 4, 'man': 5, 'runs': 6, '.': 7,
+    }
+    translation_batch = [
+        {'de': 'Ein Mann.', 'en': 'A man.'},
+        {'de': 'Ein Mann läuft.', 'en': 'A man runs.'},
+    ]
+    source, target_input, target_output, valid_mask = translate_collate_fn(
+        translation_batch,
+        source_token_to_id,
+        target_token_to_id,
+    )
+
+    assert source.dtype == target_input.dtype == target_output.dtype == torch.long
+    assert valid_mask.dtype == torch.bool
+    assert source.tolist() == [[4, 5, 7, 2, 0], [4, 5, 6, 7, 2]]
+    assert target_input.tolist() == [[1, 4, 5, 7, 0], [1, 4, 5, 6, 7]]
+    assert target_output.tolist() == [[4, 5, 7, 2, 0], [4, 5, 6, 7, 2]]
+    assert valid_mask.tolist() == [[True, True, True, True, False], [True] * 5]
