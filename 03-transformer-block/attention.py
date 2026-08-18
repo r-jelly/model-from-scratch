@@ -30,6 +30,22 @@ def scaled_dot_product_attention(query: Tensor, key: Tensor, value: Tensor, attn
     return output, attention_weight
 
 
+def create_causal_mask(seq_len: int) -> Tensor:
+    """
+    Causal Language Model을 위한 마스킹 텐서를 생성하는 함수
+    생성되는 시점 이후의 토큰을 학습에서 참조하지 않도록 하는 역할
+
+    Args:
+        seq_len (int): 전체 시퀀스 길이
+    Returns:
+        causal_mask (BoolTensor): 시퀀스 내 timestep t 이후의 토큰은 사용하지 않도록 마스킹된 텐서
+    """
+    causal_mask = torch.fill(torch.empty((seq_len, seq_len), dtype=torch.bool), False)
+    for i in range(seq_len):
+        causal_mask[i, :i+1] = True
+    return causal_mask
+
+
 if __name__ == "__main__":
     batch_size, len_q, len_k, dim_k, dim_v = 2, 3, 4, 5, 6
     query = torch.randn((batch_size, len_q, dim_k), requires_grad=True)
@@ -62,3 +78,32 @@ if __name__ == "__main__":
     expected_output = torch.tensor([[[15.0], [15.0]]])
     torch.testing.assert_close(masked_weight, expected_weight)
     torch.testing.assert_close(masked_output, expected_output)
+
+    causal_mask = create_causal_mask(4)
+    expected_causal_mask = torch.tensor([
+        [True, False, False, False],
+        [True, True, False, False],
+        [True, True, True, False],
+        [True, True, True, True],
+    ])
+    torch.testing.assert_close(causal_mask, expected_causal_mask)
+
+    causal_query = torch.zeros((1, 4, 2))
+    causal_key = torch.zeros((1, 4, 2))
+    causal_value = torch.tensor([[[10.0], [20.0], [30.0], [40.0]]])
+    causal_output, causal_weight = scaled_dot_product_attention(
+        causal_query,
+        causal_key,
+        causal_value,
+        causal_mask,
+    )
+
+    expected_causal_weight = torch.tensor([[
+        [1.0, 0.0, 0.0, 0.0],
+        [0.5, 0.5, 0.0, 0.0],
+        [1 / 3, 1 / 3, 1 / 3, 0.0],
+        [0.25, 0.25, 0.25, 0.25],
+    ]])
+    expected_causal_output = torch.tensor([[[10.0], [15.0], [20.0], [25.0]]])
+    torch.testing.assert_close(causal_weight, expected_causal_weight)
+    torch.testing.assert_close(causal_output, expected_causal_output)
