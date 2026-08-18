@@ -1,6 +1,7 @@
 import math
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch import Tensor
 
 
@@ -52,6 +53,8 @@ if __name__ == "__main__":
     key = torch.randn((batch_size, len_k, dim_k), requires_grad=True)
     value = torch.randn((batch_size, len_k, dim_v), requires_grad=True)
 
+    print("=" * 50)
+    print("1. Scaled Dot-Product Attention Testing")
     output, attention_weight = scaled_dot_product_attention(query, key, value)
     assert output.shape == (batch_size, len_q, dim_v)
     assert attention_weight.shape == (batch_size, len_q, len_k)
@@ -61,7 +64,10 @@ if __name__ == "__main__":
     assert torch.isfinite(query.grad).all()
     assert torch.isfinite(key.grad).all()
     assert torch.isfinite(value.grad).all()
+    print("Test Complete!!!")
 
+    print("=" * 50)
+    print("2. Attention Mask Testing")
     masked_query = torch.zeros((1, 2, 2))
     masked_key = torch.zeros((1, 3, 2))
     masked_value = torch.tensor([[[10.0], [20.0], [1000.0]]])
@@ -78,7 +84,10 @@ if __name__ == "__main__":
     expected_output = torch.tensor([[[15.0], [15.0]]])
     torch.testing.assert_close(masked_weight, expected_weight)
     torch.testing.assert_close(masked_output, expected_output)
+    print("Test Complete!!!")
 
+    print("=" * 50)
+    print("3. Create Causal Masking Function Testing")
     causal_mask = create_causal_mask(4)
     expected_causal_mask = torch.tensor([
         [True, False, False, False],
@@ -107,3 +116,85 @@ if __name__ == "__main__":
     expected_causal_output = torch.tensor([[[10.0], [15.0], [20.0], [25.0]]])
     torch.testing.assert_close(causal_weight, expected_causal_weight)
     torch.testing.assert_close(causal_output, expected_causal_output)
+    print("Test Complete!!!")
+
+    print("=" * 50)
+    print("4. Compare with Pytorch Scaled Dot-Product Attention")
+    batch_size, num_head, len_q, len_k, dim_k, dim_v = 2, 3, 4, 5, 8, 6
+    query = torch.randn((batch_size, num_head, len_q, dim_k), requires_grad=True)
+    key = torch.randn((batch_size, num_head, len_k, dim_k), requires_grad=True)
+    value = torch.randn((batch_size, num_head, len_k, dim_v), requires_grad=True)
+
+    my_attention, _ = scaled_dot_product_attention(query, key, value)
+    torch_attention = F.scaled_dot_product_attention(query, key, value, dropout_p=0.0)
+
+    assert my_attention.shape == (batch_size, num_head, len_q, dim_v)
+    assert torch_attention.shape == (batch_size, num_head, len_q, dim_v)
+    torch.testing.assert_close(torch_attention, my_attention)
+
+    padding_mask = torch.ones(
+      (batch_size, 1, 1, len_k),
+      dtype=torch.bool,
+    )
+    padding_mask[1, :, :, -2:] = False
+
+    my_masked_output, my_masked_weight = scaled_dot_product_attention(
+        query,
+        key,
+        value,
+        padding_mask,
+    )
+    torch_masked_output = F.scaled_dot_product_attention(
+        query,
+        key,
+        value,
+        attn_mask=padding_mask,
+        dropout_p=0.0,
+    )
+
+    torch.testing.assert_close(my_masked_output, torch_masked_output)
+
+    expanded_mask = padding_mask.expand_as(my_masked_weight)
+    assert torch.all(my_masked_weight[~expanded_mask] == 0)
+    assert torch.allclose(
+        my_masked_weight.sum(dim=-1),
+        torch.ones_like(my_masked_weight.sum(dim=-1)),
+    )
+
+    causal_len = 4
+    causal_query = torch.randn(
+        (batch_size, num_head, causal_len, dim_k),
+    )
+    causal_key = torch.randn(
+        (batch_size, num_head, causal_len, dim_k),
+    )
+    causal_value = torch.randn(
+        (batch_size, num_head, causal_len, dim_v),
+    )
+    causal_mask = create_causal_mask(causal_len)
+
+    my_causal_output, my_causal_weight = scaled_dot_product_attention(
+        causal_query,
+        causal_key,
+        causal_value,
+        causal_mask,
+    )
+    torch_causal_output = F.scaled_dot_product_attention(
+        causal_query,
+        causal_key,
+        causal_value,
+        dropout_p=0.0,
+        is_causal=True,
+    )
+
+    torch.testing.assert_close(my_causal_output, torch_causal_output)
+
+    expanded_causal_mask = causal_mask.expand_as(my_causal_weight)
+    assert torch.all(my_causal_weight[~expanded_causal_mask] == 0)
+
+    causal_weight_sum = my_causal_weight.sum(dim=-1)
+    torch.testing.assert_close(
+        causal_weight_sum,
+        torch.ones_like(causal_weight_sum),
+    )
+    print("Test Complete!!!")
