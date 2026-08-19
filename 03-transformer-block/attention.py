@@ -1,4 +1,6 @@
 import math
+from typing import Optional
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -45,6 +47,59 @@ def create_causal_mask(seq_len: int) -> Tensor:
     for i in range(seq_len):
         causal_mask[i, :i+1] = True
     return causal_mask
+
+
+class MultiHeadAttention(nn.Module):
+    def __init__(self, d_model: int, num_heads: int):
+        super().__init__()
+        assert d_model % num_heads == 0
+
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.head_dim = d_model // num_heads
+
+        self.q_proj = nn.Linear(d_model, d_model)
+        self.k_proj = nn.Linear(d_model, d_model)
+        self.v_proj = nn.Linear(d_model, d_model)
+        self.o_proj = nn.Linear(d_model, d_model)
+
+
+    def forward(self, query: Tensor, key: Tensor, value: Tensor, attn_mask: Optional[Tensor]=None):
+        """
+        Args:
+            query: (B, T_q, D), Attention의 Query
+            key: (B, T_k, D), Attention의 Key
+            value: (B, T_k, D), Attention의 Value
+            attn_mask: (B, H, T_q, T_k)에 broadcast 가능한 bool mask.
+                       True는 attention 허용, False는 차단.
+        Returns:
+            output: (B, T_q, D) 크기의 Attention Output
+            attention_weight: (B, H, T_q, T_k) 크기의 Attention Weight
+        """
+        # 1. Q/K/V를 Projection
+        query = self.q_proj(query) # (B, T_q, D) -> (B, T_q, D)
+        key = self.k_proj(key) # (B, T_k, D) -> (B, T_k, D)
+        value = self.v_proj(value) # (B, T_k, D) -> (B, T_k, D)
+
+        # 2. Head를 분리
+        query = query.reshape(query.size(0), query.size(1), self.num_heads, self.head_dim) # (B, T_q, D) -> (B, T_q, H, D_h)
+        key = key.reshape(key.size(0), key.size(1), self.num_heads, self.head_dim) # (B, T_k, D) -> (B, T_k, H, D_h)
+        value = value.reshape(value.size(0), value.size(1), self.num_heads, self.head_dim) # (B, T_k, D) -> (B, T_k, H, D_h)
+
+        # 3. Head 축 변환
+        query = query.transpose(1, 2) # (B, T_q, H, D_h) -> (B, H, T_q, D_h)
+        key = key.transpose(1, 2) # (B, T_k, H, D_h) -> (B, H, T_k, D_h)
+        value = value.transpose(1, 2) # (B, T_k, H, D_h) -> (B, H, T_k, D_h)
+
+        # 4. scaled dot-product attention 호출
+        output, attention_weight = scaled_dot_product_attention(query, key, value, attn_mask) # (B, H, T_q, D_h), (B, H, T_q, T_k)
+
+        # 5. output 변환
+        output = output.transpose(1, 2) # (B, H, T_q, D_h) -> (B, T_q, H, D_h)
+        output = output.reshape(output.size(0), output.size(1), -1) # (B, T_q, H, D_h) -> (B, T_q, D)
+        output = self.o_proj(output)
+
+        return output, attention_weight
 
 
 if __name__ == "__main__":
@@ -196,5 +251,166 @@ if __name__ == "__main__":
     torch.testing.assert_close(
         causal_weight_sum,
         torch.ones_like(causal_weight_sum),
+    )
+    print("Test Complete!!!")
+
+    print("=" * 50)
+    print("5. Multi-Head Attention Testing")
+    batch_size, num_heads, len_q, len_k, d_model = 2, 3, 4, 5, 12
+    multi_head_attention = MultiHeadAttention(d_model, num_heads)
+
+    query = torch.randn((batch_size, len_q, d_model), requires_grad=True)
+    key = torch.randn((batch_size, len_k, d_model), requires_grad=True)
+    value = torch.randn((batch_size, len_k, d_model), requires_grad=True)
+
+    output, attention_weight = multi_head_attention(query, key, value)
+
+    assert output.shape == (batch_size, len_q, d_model)
+    assert attention_weight.shape == (batch_size, num_heads, len_q, len_k)
+    torch.testing.assert_close(
+        attention_weight.sum(dim=-1),
+        torch.ones_like(attention_weight.sum(dim=-1)),
+    )
+    assert torch.isfinite(output).all()
+    assert torch.isfinite(attention_weight).all()
+
+    output.sum().backward()
+    assert torch.isfinite(query.grad).all()
+    assert torch.isfinite(key.grad).all()
+    assert torch.isfinite(value.grad).all()
+    print("Test Complete!!!")
+
+    print("=" * 50)
+    print("6. Multi-Head Attention Padding Mask Testing")
+    padding_mask = torch.ones(
+        (batch_size, 1, 1, len_k),
+        dtype=torch.bool,
+    )
+    padding_mask[1, :, :, -2:] = False
+
+    masked_output, masked_attention_weight = multi_head_attention(
+        query,
+        key,
+        value,
+        padding_mask,
+    )
+
+    expanded_mask = padding_mask.expand_as(masked_attention_weight)
+    assert torch.all(masked_attention_weight[~expanded_mask] == 0)
+    torch.testing.assert_close(
+        masked_attention_weight.sum(dim=-1),
+        torch.ones_like(masked_attention_weight.sum(dim=-1)),
+    )
+    assert torch.isfinite(masked_output).all()
+    print("Test Complete!!!")
+
+    print("=" * 50)
+    print("7. Multi-Head Attention Causal Mask Testing")
+    causal_len = 4
+    causal_query = torch.randn((batch_size, causal_len, d_model))
+    causal_key = torch.randn((batch_size, causal_len, d_model))
+    causal_value = torch.randn((batch_size, causal_len, d_model))
+    causal_mask = create_causal_mask(causal_len)
+
+    causal_output, causal_attention_weight = multi_head_attention(
+        causal_query,
+        causal_key,
+        causal_value,
+        causal_mask,
+    )
+
+    expanded_causal_mask = causal_mask.expand_as(causal_attention_weight)
+    assert torch.all(causal_attention_weight[~expanded_causal_mask] == 0)
+    torch.testing.assert_close(
+        causal_attention_weight.sum(dim=-1),
+        torch.ones_like(causal_attention_weight.sum(dim=-1)),
+    )
+    assert torch.isfinite(causal_output).all()
+    print("Test Complete!!!")
+
+    print("=" * 50)
+    print("8. Compare with Pytorch Multi-Head Attention")
+    torch_multi_head_attention = nn.MultiheadAttention(
+        embed_dim=d_model,
+        num_heads=num_heads,
+        dropout=0.0,
+        batch_first=True,
+    )
+
+    with torch.no_grad():
+        torch_multi_head_attention.in_proj_weight.copy_(
+            torch.cat([
+                multi_head_attention.q_proj.weight,
+                multi_head_attention.k_proj.weight,
+                multi_head_attention.v_proj.weight,
+            ])
+        )
+        torch_multi_head_attention.in_proj_bias.copy_(
+            torch.cat([
+                multi_head_attention.q_proj.bias,
+                multi_head_attention.k_proj.bias,
+                multi_head_attention.v_proj.bias,
+            ])
+        )
+        torch_multi_head_attention.out_proj.weight.copy_(
+            multi_head_attention.o_proj.weight
+        )
+        torch_multi_head_attention.out_proj.bias.copy_(
+            multi_head_attention.o_proj.bias
+        )
+
+    my_output, my_attention_weight = multi_head_attention(query, key, value)
+    torch_output, torch_attention_weight = torch_multi_head_attention(
+        query,
+        key,
+        value,
+        need_weights=True,
+        average_attn_weights=False,
+    )
+    torch.testing.assert_close(my_output, torch_output)
+    torch.testing.assert_close(my_attention_weight, torch_attention_weight)
+
+    my_masked_output, my_masked_attention_weight = multi_head_attention(
+        query,
+        key,
+        value,
+        padding_mask,
+    )
+    torch_masked_output, torch_masked_attention_weight = (
+        torch_multi_head_attention(
+            query,
+            key,
+            value,
+            key_padding_mask=~padding_mask[:, 0, 0, :],
+            need_weights=True,
+            average_attn_weights=False,
+        )
+    )
+    torch.testing.assert_close(my_masked_output, torch_masked_output)
+    torch.testing.assert_close(
+        my_masked_attention_weight,
+        torch_masked_attention_weight,
+    )
+
+    my_causal_output, my_causal_attention_weight = multi_head_attention(
+        causal_query,
+        causal_key,
+        causal_value,
+        causal_mask,
+    )
+    torch_causal_output, torch_causal_attention_weight = (
+        torch_multi_head_attention(
+            causal_query,
+            causal_key,
+            causal_value,
+            attn_mask=~causal_mask,
+            need_weights=True,
+            average_attn_weights=False,
+        )
+    )
+    torch.testing.assert_close(my_causal_output, torch_causal_output)
+    torch.testing.assert_close(
+        my_causal_attention_weight,
+        torch_causal_attention_weight,
     )
     print("Test Complete!!!")
