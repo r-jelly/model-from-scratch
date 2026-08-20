@@ -51,6 +51,11 @@ def create_causal_mask(seq_len: int) -> Tensor:
 
 class MultiHeadAttention(nn.Module):
     def __init__(self, d_model: int, num_heads: int):
+        """
+        Args:
+            d_model (int): 모델 내부에서의 Hidden Dimension (=임베딩 차원)
+            num_heads (int): 모델이 동시에 계산할 Attention 병렬 처리의 개수 (=Attention Head 수)
+        """
         super().__init__()
         assert d_model % num_heads == 0
 
