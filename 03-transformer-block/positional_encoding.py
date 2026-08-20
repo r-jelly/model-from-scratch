@@ -63,4 +63,15 @@ if __name__ == "__main__":
 
     output.sum().backward()
     torch.testing.assert_close(x.grad, torch.ones_like(x))
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    positional_encoding = positional_encoding.to(device)
+    device_input = torch.zeros(
+        (batch_size, seq_len, d_model),
+        device=device,
+    )
+    device_output = positional_encoding(device_input)
+
+    assert positional_encoding.pe.device == device_input.device
+    assert device_output.device == device_input.device
     print("Test Complete!!!")
