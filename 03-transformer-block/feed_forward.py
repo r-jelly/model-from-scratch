@@ -11,8 +11,8 @@ class FeedForward(nn.Module):
             d_ff (int): Feed-Forward 내부 확장 dimension
         """
         super().__init__()
-
-        # TODO
+        self.linear1 = nn.Linear(d_model, d_ff)
+        self.linear2 = nn.Linear(d_ff, d_model)
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -21,8 +21,10 @@ class FeedForward(nn.Module):
         Returns:
             output: (B, T, D)
         """
-        # TODO
-        raise NotImplementedError
+        out = self.linear1(x)
+        out = torch.relu(out)
+        out = self.linear2(out)
+        return out
 
 
 if __name__ == "__main__":
