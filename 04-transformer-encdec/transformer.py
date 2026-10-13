@@ -13,6 +13,7 @@ class Transformer(nn.Module):
         num_heads: int,
         max_seq_len: int,
         vocab_size: int,
+        num_blocks: int,
     ):
         super().__init__()
         self.emb_layer = Embedding(
@@ -24,13 +25,15 @@ class Transformer(nn.Module):
             d_model=d_model,
             num_heads=num_heads,
             max_seq_len=max_seq_len,
+            num_blocks=num_blocks
         )
         self.decoder = Decoder(
             emb_layer=self.emb_layer,
             vocab_size=vocab_size,
             d_model=d_model,
             num_heads=num_heads,
-            max_seq_len=max_seq_len
+            max_seq_len=max_seq_len,
+            num_blocks=num_blocks
         )
 
     def forward(
@@ -61,7 +64,7 @@ VOCAB_SIZE = 20
 
 def build_test_model() -> Transformer:
     torch.manual_seed(42)
-    model = Transformer(d_model=16, num_heads=4, max_seq_len=32, vocab_size=VOCAB_SIZE)
+    model = Transformer(d_model=16, num_heads=4, max_seq_len=32, vocab_size=VOCAB_SIZE, num_blocks=4)
     model.eval()
     return model
 

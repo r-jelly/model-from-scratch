@@ -15,33 +15,34 @@ class EncoderBlock(nn.Module):
         self.ffn = FeedForward(d_model=emb_size, d_ff=4*emb_size)
         self.norm1 = LayerNorm(d_model=emb_size)
         self.norm2 = LayerNorm(d_model=emb_size)
+        self.dropout = nn.Dropout(p=0.1)
 
     def forward(self, x, attn_mask=None):
         out, _ = self.mha(query=x, key=x, value=x, attn_mask=attn_mask)
-        out = self.norm1(x + out) # Post-LN: LayerNorm(x + Sublayer(x))
+        out = self.norm1(x + self.dropout(out)) # Post-LN: LayerNorm(x + Sublayer(x))
 
         y = self.ffn(out)
-        y = self.norm2(out + y)
+        y = self.norm2(out + self.dropout(y))
 
         return y
 
 
 class Encoder(nn.Module):
-    def __init__(self, emb_layer: Embedding, d_model, num_heads, max_seq_len):
+    def __init__(self, emb_layer: Embedding, d_model, num_heads, max_seq_len, num_blocks=6):
         super().__init__()
         self.embedding = emb_layer
         self.pe = SinusoidalPositionalEncoding(d_model=d_model, max_seq_len=max_seq_len)
         self.encoder_blocks = nn.ModuleList([
-            EncoderBlock(d_model, num_heads) for _ in range(6)
+            EncoderBlock(d_model, num_heads) for _ in range(num_blocks)
         ])
-        
+        self.dropout = nn.Dropout(p=0.1)
 
     def forward(self, token_ids, attn_mask=None):
         # 1. Embedding + Positional Encoding
         x = self.embedding(token_ids)
-        x = self.pe(x)
+        x = self.dropout(self.pe(x))
         
-        # 2. Transformer Block * 6
+        # 2. Transformer Block * # blocks
         for block in self.encoder_blocks:
             x = block(x, attn_mask=attn_mask)
 
