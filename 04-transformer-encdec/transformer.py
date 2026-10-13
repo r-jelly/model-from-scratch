@@ -4,6 +4,7 @@ import torch.nn as nn
 from encoder import Encoder
 from decoder import Decoder
 from module.embedding import Embedding
+from module.attention import create_causal_mask
 
 
 class Transformer(nn.Module):
@@ -138,6 +139,32 @@ def test_src_padding_mask() -> None:
     assert not torch.allclose(logits[1], real_changed_logits[1])
 
 
+def test_tgt_padding_causal_mask() -> None:
+    """decoder self-attention이 미래 위치와 target padding 위치를 함께 막는지(causal & padding mask 결합) 확인한다."""
+    model = build_test_model()
+    src_ids, tgt_ids, src_mask, tgt_mask = make_inputs()
+    # 오른쪽 padding에서는 padding 행에서만 결합 효과가 드러나므로, padding 2개로 padding 행이 다른 padding key를 보는 경우를 만든다
+    tgt_ids[1, -2:] = 0
+    tgt_mask[1, :, :, -2:] = False
+
+    attention_weights = []
+    for block in model.decoder.decoder_blocks:
+        block.masked_mha.register_forward_hook(
+            lambda module, inputs, outputs: attention_weights.append(outputs[1])
+        )
+        # `register_forward_hook`
+        # 모델의 forward pass 중에 특정한 layer의 input, output 값에 접근해 원하는 작업을 수행하게 할 수 있다.
+
+    with torch.no_grad():
+        model(src_ids, tgt_ids, src_mask, tgt_mask)
+
+    # 미래도 padding도 아닌 key에서만 weight가 0보다 커야 한다
+    expected_mask = create_causal_mask(tgt_ids.size(1)) & tgt_mask  # (B, 1, T, T)
+    assert len(attention_weights) == len(model.decoder.decoder_blocks)
+    for attention_weight in attention_weights:  # (B, H, T, T)
+        assert torch.equal(attention_weight > 0, expected_mask.expand_as(attention_weight))
+
+
 def test_gradient_flow() -> None:
     """backward 후 모든 파라미터에 유한한 gradient가 생기는지 확인한다."""
     model = build_test_model()
@@ -156,5 +183,6 @@ if __name__ == "__main__":
     test_weight_tying()
     test_decoder_causality()
     test_src_padding_mask()
+    test_tgt_padding_causal_mask()
     test_gradient_flow()
     print("Test Complete!!!")
