@@ -26,7 +26,7 @@ class DecoderBlock(nn.Module):
         out1, _ = self.masked_mha(
             query=x, key=x, value=x,
             attn_mask=causal_mask & dec_attn_mask if dec_attn_mask is not None else causal_mask
-        )
+        ) # causal_mask와 dec_attn_mask를 동시에 적용해야 함
         out1 = self.norm1(x + out1)
 
         # 2. Cross Attention
@@ -43,3 +43,30 @@ class DecoderBlock(nn.Module):
         out3 = self.norm3(out2 + out3)
 
         return out3
+
+
+class Decoder(nn.Module):
+    def __init__(self, emb_layer: Embedding, vocab_size, d_model, num_heads, max_seq_len):
+        super().__init__()
+        self.embedding = emb_layer
+        self.pe = SinusoidalPositionalEncoding(d_model=d_model, max_seq_len=max_seq_len)
+        self.decoder_blocks = nn.ModuleList([
+            DecoderBlock(d_model, num_heads) for _ in range(6)
+        ])
+        self.linear = nn.Linear(d_model, vocab_size)
+        self.linear.weight = self.embedding.embedding.weight
+        
+
+    def forward(self, token_ids, enc_output, enc_attn_mask=None, dec_attn_mask=None):
+        # 1. Embedding + Positional Encoding
+        x = self.embedding(token_ids)
+        x = self.pe(x)
+        
+        # 2. Transformer Block * 6
+        for block in self.decoder_blocks:
+            x = block(x, enc_output, enc_attn_mask, dec_attn_mask)
+
+        # 3. Linear
+        x = self.linear(x)
+
+        return x
